@@ -24,14 +24,25 @@ def get_connection():
 
 
 def run_query(query, params=None):
-  conn = get_connection()
-  df = pd.read_sql(query, conn, params=params)
-  conn.close()
-  return df
+  try:
+    conn = get_connection()
+  except mysql.connector.Error as err:
+    st.error(
+        "❌ **Não foi possível conectar ao MySQL.** Verifique se o servidor está"
+        f" rodando e se o arquivo `.env` está correto. Detalhe: {err.msg}"
+    )
+    st.stop()
+  try:
+    return pd.read_sql(query, conn, params=params)
+  finally:
+    conn.close()
 
 
 def execute_command(query, params=None):
-  conn = get_connection()
+  try:
+    conn = get_connection()
+  except mysql.connector.Error as err:
+    return False, f"❌ **Não foi possível conectar ao MySQL:** {err.msg}"
   cursor = conn.cursor()
   try:
     cursor.execute(query, params or ())
@@ -127,9 +138,10 @@ with aba_dash:
   col3.metric(
       "Provas Registradas", int(df_analitico["Provas_Disputadas"].sum())
   )
+  com_nota = df_analitico[df_analitico["Media_Pontuacao"] > 0]["Media_Pontuacao"]
   col4.metric(
       "Média Geral",
-      f"{df_analitico[df_analitico['Media_Pontuacao'] > 0]['Media_Pontuacao'].mean():.2f} pts",
+      f"{com_nota.mean():.2f} pts" if not com_nota.empty else "—",
   )
 
   st.divider()
@@ -145,7 +157,7 @@ with aba_dash:
         title="Média de Pontuação por Equipe (incluindo equipes sem provas)",
         text_auto=True,
     )
-    st.plotly_chart(fig_bar, use_container_width=True)
+    st.plotly_chart(fig_bar, width="stretch")
 
   with col_g2:
     df_cat = run_query("""
@@ -160,7 +172,7 @@ with aba_dash:
         values="Total_Provas",
         title="Distribuição de Provas por Categoria de Robô",
     )
-    st.plotly_chart(fig_pie, use_container_width=True)
+    st.plotly_chart(fig_pie, width="stretch")
 
   st.subheader(
       "📋 Resultado da Consulta Não Trivial (LEFT JOIN + GROUP BY + Agregação +"
@@ -170,7 +182,7 @@ with aba_dash:
       "Note que equipes sem robôs cadastrados (ex: MechWarriors) aparecem com"
       " valores zerados graças ao LEFT JOIN."
   )
-  st.dataframe(df_analitico, use_container_width=True)
+  st.dataframe(df_analitico, width="stretch")
 
 # ==============================================================================
 # ABA 2: OPERAÇÕES CRUD COMPLETAS + REFERÊNCIA RÁPIDA DE IDS
@@ -187,7 +199,7 @@ with aba_crud:
   # --- READ ---
   st.subheader(f"🔍 Leitura (Read) - Tabela `{tabela_escolhida}`")
   df_tabela = run_query(f"SELECT * FROM {tabela_escolhida}")
-  st.dataframe(df_tabela, use_container_width=True)
+  st.dataframe(df_tabela, width="stretch")
 
   col_c, col_u, col_d = st.columns(3)
 
@@ -391,7 +403,7 @@ with aba_crud:
         LEFT JOIN resultado res ON r.id_robo = res.id_robo;
     """
   df_ref = run_query(query_referencia)
-  st.dataframe(df_ref, use_container_width=True)
+  st.dataframe(df_ref, width="stretch")
 
 # ==============================================================================
 # ABA 3: DEMONSTRAÇÃO DE TRIGGERS, STORED PROCEDURE E INTEGRIDADE REFERENCIAL
@@ -577,3 +589,42 @@ with aba_avancado:
         st.error(f"Bloqueio bem-sucedido pelo SGBD!\n\n**Detalhe:** {msg}")
       else:
         st.warning("Inesperado: a inserção passou.")
+
+  st.divider()
+
+  # --- BÔNUS: STORED PROCEDURE DE ACRÉSCIMO POR CATEGORIA ---
+  st.subheader("🎁 Stored Procedure: Bônus por Categoria")
+  st.write(
+      "Aplica um acréscimo percentual na pontuação de todos os robôs de uma"
+      " categoria, respeitando o teto de 100 pontos."
+  )
+  with st.form("form_sp_bonus"):
+    cat_bonus = st.selectbox(
+        "Categoria",
+        ["Seguidor de Linha", "Sumô de Robôs", "Combate 3kg"],
+        key="bonus_cat",
+    )
+    perc_bonus = st.number_input(
+        "Percentual de bônus (%)",
+        min_value=0.0,
+        max_value=100.0,
+        value=10.0,
+        key="bonus_perc",
+    )
+    if st.form_submit_button("Aplicar Bônus (`CALL`)"):
+      ok, msg = execute_command(
+          "CALL sp_aplicar_bonus_categoria(%s, %s)", (cat_bonus, perc_bonus)
+      )
+      if ok:
+        st.session_state["feedback"] = (
+            "bonus",
+            "success",
+            f"Bônus de {perc_bonus:.2f}% aplicado aos robôs da categoria"
+            f" '{cat_bonus}' (teto de 100 pontos).",
+        )
+        st.rerun()
+      else:
+        st.error(msg)
+  exibir_feedback("bonus")
+
+  st.divider()

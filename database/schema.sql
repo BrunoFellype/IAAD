@@ -177,12 +177,12 @@ INSERT INTO robo (nome_robo, categoria, data_criacao, id_equipe) VALUES
 -- 4. Resultados (Adicionados mais resultados compatíveis com as regras das provas)
 INSERT INTO resultado (nome_prova, classificacao, pontuacao, id_robo) VALUES 
 ('Corrida de Velocidade', 1, 95.50, 1),
-('Duelo de Sumô', 1, 82.00, 2),
+('Duelo de Sumô', 2, 82.00, 2),
 ('Arena de Batalha', 1, 98.00, 3),
-('Circuito Urbano', 1, 76.00, 4),
+('Circuito Urbano', 2, 76.00, 4),
 ('Arena de Batalha', 2, 88.50, 5),
-('Duelo de Sumô', 2, 79.00, 6),
+('Duelo de Sumô', 3, 79.00, 6),
 ('Corrida de Velocidade', 2, 91.20, 7),
 ('Arena de Batalha', 3, 65.00, 8),
-('Duelo de Sumô', 3, 85.40, 9),
-('Circuito Urbano', 2, 89.00, 10);
+('Duelo de Sumô', 1, 85.40, 9),
+('Circuito Urbano', 1, 89.00, 10);
