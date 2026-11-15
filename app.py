@@ -39,10 +39,10 @@ def execute_command(query, params=None):
     return True, "Operação realizada com sucesso!"
   except mysql.connector.Error as err:
     conn.rollback()
-    
+
     # Captura o texto do erro do MySQL
     err_msg = str(err)
-    
+
     # Erro customizado da Trigger (SIGNAL SQLSTATE '45000' / Código 1644)
     if err.errno == 1644 or "45000" in err_msg:
       if "1644 (" in err_msg:
@@ -51,23 +51,40 @@ def execute_command(query, params=None):
       else:
         msg_limpa = err.msg
       return False, f"🛑 {msg_limpa}"
-      
+
     elif err.errno == 1452:
-      return False, "🔗 **Erro de Integridade:** O ID informado (Equipe ou Robô) não existe no banco de dados."
-      
+      return (
+          False,
+          "🔗 **Erro de Integridade:** O ID informado (Equipe ou Robô) não"
+          " existe no banco de dados.",
+      )
+
     elif err.errno == 1062:
-      return False, "⚠️ **Erro de Duplicidade:** Este registro já está cadastrado."
-      
+      return (
+          False,
+          "⚠️ **Erro de Duplicidade:** Este registro já está cadastrado.",
+      )
+
     else:
       return False, f"❌ **Erro no Banco de Dados:** {err.msg}"
-      
+
   except Exception as e:
     # Captura qualquer outro erro inesperado do Python sem estourar o traceback na tela
     return False, f"❌ **Erro inesperado:** {str(e)}"
-    
+
   finally:
     cursor.close()
     conn.close()
+
+
+def exibir_feedback(escopo):
+  feedback = st.session_state.get("feedback")
+  if feedback and feedback[0] == escopo:
+    _, tipo, texto = st.session_state.pop("feedback")
+    if tipo == "success":
+      st.success(texto)
+    else:
+      st.error(texto)
 
 
 # --- CABEÇALHO ---
@@ -160,10 +177,11 @@ with aba_dash:
 # ==============================================================================
 with aba_crud:
   st.header("Operações CRUD nas Tabelas")
+  exibir_feedback("crud")
   tabela_escolhida = st.selectbox(
       "Selecione a tabela para gerenciar:",
       ["equipe", "membro_equipe", "robo", "resultado"],
-      key="select_tabela_crud"
+      key="select_tabela_crud",
   )
 
   # --- READ ---
@@ -183,11 +201,12 @@ with aba_crud:
         cidade = st.text_input("Cidade")
         if st.form_submit_button("Salvar Equipe"):
           ok, msg = execute_command(
-              "INSERT INTO equipe (nome_equipe, escola, cidade) VALUES (%s, %s, %s)",
+              "INSERT INTO equipe (nome_equipe, escola, cidade) VALUES (%s, %s,"
+              " %s)",
               (nome, escola, cidade),
           )
           if ok:
-            st.success(msg)
+            st.session_state["feedback"] = ("crud", "success", msg)
             st.rerun()
           else:
             st.error(msg)
@@ -199,11 +218,12 @@ with aba_crud:
         id_eq = st.number_input("ID da Equipe (FK)", min_value=1, step=1)
         if st.form_submit_button("Salvar Membro"):
           ok, msg = execute_command(
-              "INSERT INTO membro_equipe (nome_membro, funcao, id_equipe) VALUES (%s, %s, %s)",
+              "INSERT INTO membro_equipe (nome_membro, funcao, id_equipe)"
+              " VALUES (%s, %s, %s)",
               (nome, funcao, id_eq),
           )
           if ok:
-            st.success(msg)
+            st.session_state["feedback"] = ("crud", "success", msg)
             st.rerun()
           else:
             st.error(msg)
@@ -218,11 +238,12 @@ with aba_crud:
         id_eq = st.number_input("ID da Equipe (FK)", min_value=1, step=1)
         if st.form_submit_button("Salvar Robô"):
           ok, msg = execute_command(
-              "INSERT INTO robo (nome_robo, categoria, data_criacao, id_equipe) VALUES (%s, %s, %s, %s)",
+              "INSERT INTO robo (nome_robo, categoria, data_criacao,"
+              " id_equipe) VALUES (%s, %s, %s, %s)",
               (nome, cat, data_c, id_eq),
           )
           if ok:
-            st.success(msg)
+            st.session_state["feedback"] = ("crud", "success", msg)
             st.rerun()
           else:
             st.error(msg)
@@ -244,7 +265,8 @@ with aba_crud:
         )
 
         st.caption(
-            "ℹ️ A Stored Procedure do banco vai inserir e calcular a classificação automaticamente!"
+            "ℹ️ A Stored Procedure do banco vai inserir e calcular a"
+            " classificação automaticamente!"
         )
 
         if st.form_submit_button("Salvar Resultado"):
@@ -252,7 +274,11 @@ with aba_crud:
               "CALL sp_inserir_resultado(%s, %s, %s)", (prova, pontos, id_rb)
           )
           if ok:
-            st.success("Resultado cadastrado e ranking recalculado com sucesso!")
+            st.session_state["feedback"] = (
+                "crud",
+                "success",
+                "Resultado cadastrado e ranking recalculado com sucesso!",
+            )
             st.rerun()
           else:
             st.error(msg)
@@ -270,7 +296,7 @@ with aba_crud:
               (nova_cidade, id_alvo),
           )
           if ok:
-            st.success(msg)
+            st.session_state["feedback"] = ("crud", "success", msg)
             st.rerun()
           else:
             st.error(msg)
@@ -285,7 +311,7 @@ with aba_crud:
               (nova_funcao, id_alvo),
           )
           if ok:
-            st.success(msg)
+            st.session_state["feedback"] = ("crud", "success", msg)
             st.rerun()
           else:
             st.error(msg)
@@ -300,7 +326,7 @@ with aba_crud:
               (novo_nome, id_alvo),
           )
           if ok:
-            st.success(msg)
+            st.session_state["feedback"] = ("crud", "success", msg)
             st.rerun()
           else:
             st.error(msg)
@@ -317,7 +343,7 @@ with aba_crud:
               (nova_pont, id_alvo),
           )
           if ok:
-            st.success(msg)
+            st.session_state["feedback"] = ("crud", "success", msg)
             st.rerun()
           else:
             st.error(msg)
@@ -340,7 +366,7 @@ with aba_crud:
             f"DELETE FROM {tabela_escolhida} WHERE {pk_col} = %s", (id_del,)
         )
         if ok:
-          st.success(msg)
+          st.session_state["feedback"] = ("crud", "success", msg)
           st.rerun()
         else:
           st.error(msg)
@@ -395,19 +421,57 @@ with aba_avancado:
           "Pontuação Exagerada (ex: 150.0)", value=150.0, key="trg1_pontos"
       )
       if st.form_submit_button("Testar Trigger de Pontuação"):
+        df_cat_robo = run_query(
+            "SELECT categoria FROM robo WHERE id_robo = %s",
+            params=(int(id_robo_t1),),
+        )
+        mapa_provas = {
+            "Seguidor de Linha": "Corrida de Velocidade",
+            "Sumô de Robôs": "Duelo de Sumô",
+            "Combate 3kg": "Arena de Batalha",
+        }
+        categoria_robo = (
+            df_cat_robo.iloc[0]["categoria"] if not df_cat_robo.empty else None
+        )
+        prova_compativel = mapa_provas.get(
+            categoria_robo, "Corrida de Velocidade"
+        )
+
         ok, msg = execute_command(
             "INSERT INTO resultado (nome_prova, classificacao, pontuacao,"
-            " id_robo) VALUES ('Teste Trigger Pontos', 0, %s, %s)",
-            (pontos_t1, id_robo_t1),
+            " id_robo) VALUES (%s, 0, %s, %s)",
+            (prova_compativel, pontos_t1, int(id_robo_t1)),
         )
         if ok:
-          st.success(
-              "Inserido com sucesso! O banco limitou o valor para 100.00 através"
-              " da Trigger."
+          df_ultimo = run_query(
+              "SELECT pontuacao FROM resultado WHERE id_robo = %s ORDER BY"
+              " id_resultado DESC LIMIT 1",
+              params=(int(id_robo_t1),),
           )
+          valor_gravado = (
+              float(df_ultimo.iloc[0]["pontuacao"])
+              if not df_ultimo.empty
+              else float(pontos_t1)
+          )
+          if valor_gravado != float(pontos_t1):
+            st.session_state["feedback"] = (
+                "trg1",
+                "error",
+                f"🛑 Pontuação fora do limite interceptada pela Trigger!"
+                f" Valor enviado ({pontos_t1:.2f}) ajustado automaticamente"
+                f" para {valor_gravado:.2f} na prova '{prova_compativel}'.",
+            )
+          else:
+            st.session_state["feedback"] = (
+                "trg1",
+                "success",
+                f"Pontuação {valor_gravado:.2f} dentro do limite permitido e"
+                f" gravada na prova '{prova_compativel}'.",
+            )
           st.rerun()
         else:
           st.error(msg)
+    exibir_feedback("trg1")
 
   # --- 2. TESTE DA TRIGGER DE COMPATIBILIDADE DE CATEGORIA ---
   with col_t2:
@@ -435,17 +499,22 @@ with aba_avancado:
           ],
           key="trg2_prova",
       )
-      
+
       if st.form_submit_button("Testar Regra de Compatibilidade"):
         ok, msg = execute_command(
             "CALL sp_inserir_resultado(%s, 80.0, %s)",
             (prova_incompativel, id_robo_t2),
         )
         if ok:
-          st.success("Inscrição permitida pelas regras da categoria!")
+          st.session_state["feedback"] = (
+              "trg2",
+              "success",
+              "Inscrição permitida pelas regras da categoria!",
+          )
           st.rerun()
         else:
           st.error(msg)
+    exibir_feedback("trg2")
 
   st.divider()
 
@@ -480,13 +549,16 @@ with aba_avancado:
             (prova_sp, pontos_sp, id_robo_sp),
         )
         if ok:
-          st.success(
+          st.session_state["feedback"] = (
+              "sp",
+              "success",
               f"Procedimento executado! Ranking da prova '{prova_sp}'"
-              " recalculado."
+              " recalculado.",
           )
           st.rerun()
         else:
           st.error(msg)
+    exibir_feedback("sp")
 
   # --- 4. TESTE DE INTEGRIDADE REFERENCIAL (FK) ---
   with col_fk:
