@@ -1,0 +1,40 @@
+# Torneio de Robótica no Redis (NoSQL chave-valor)
+# Uso: docker exec -i redis-torneio redis-cli < torneio.redis
+
+FLUSHDB
+
+# --- CREATE: equipes (hash) ---
+HSET equipe:1 nome "CyberTech" cidade "Recife"
+HSET equipe:7 nome "ThunderRobotics" cidade "Recife"
+
+# --- CREATE: robôs (hash) ---
+HSET robo:1 nome "Optimus Jr" categoria "Seguidor de Linha" equipe_id 1
+HSET robo:4 nome "Sentinel" categoria "Seguidor de Linha" equipe_id 1
+HSET robo:7 nome "Flash" categoria "Seguidor de Linha" equipe_id 7
+HSET robo:10 nome "Striker" categoria "Seguidor de Linha" equipe_id 7
+
+# --- Relacionamentos (sets) ---
+SADD equipe:1:robos 1 4
+SADD equipe:7:robos 7 10
+SADD categoria:seguidor_de_linha 1 4 7 10
+
+# --- Rankings (sorted sets) ---
+ZADD ranking:corrida_de_velocidade 95.5 robo:1 91.2 robo:7
+ZADD ranking:circuito_urbano 76 robo:4 89 robo:10
+
+# --- READ ---
+HGETALL equipe:1
+HGET robo:7 nome
+SMEMBERS equipe:1:robos
+SINTER equipe:1:robos categoria:seguidor_de_linha
+ZREVRANGE ranking:corrida_de_velocidade 0 -1 WITHSCORES
+ZREVRANK ranking:corrida_de_velocidade robo:7
+
+# --- UPDATE ---
+HSET equipe:1 cidade "Olinda"
+ZINCRBY ranking:corrida_de_velocidade 2 robo:7
+
+# --- DELETE ---
+SREM equipe:1:robos 4
+ZREM ranking:circuito_urbano robo:4
+DEL robo:4
