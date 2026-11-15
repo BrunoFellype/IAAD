@@ -23,7 +23,7 @@ docker exec -it redis-torneio redis-cli
 
 ## Como rodar
 
-Carga de exemplo e CRUD (todos os comandos estão comentados no arquivo):
+Carga de exemplo e CRUD. O arquivo `torneio.redis` segue esta ordem: limpar o banco (`FLUSHDB`), criar equipes e robôs (hashes), relacionamentos (sets), rankings (sorted sets), consultas (`HGETALL`, `SMEMBERS`, `SINTER`, `ZREVRANGE`), atualizações (`HSET`, `ZINCRBY`) e exclusões (`SREM`, `ZREM`, `DEL`). O `redis-cli` não aceita comentários, por isso o arquivo tem só comandos.
 
 ```bash
 docker exec -i redis-torneio redis-cli < redis/torneio.redis
