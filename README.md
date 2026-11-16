@@ -27,7 +27,7 @@ Aba dedicada à demonstração e validação das proteções implementadas diret
 * **Trigger `trg_valida_pontuacao_insert`:** Intercepta inserções de resultados e ajusta automaticamente pontuações fora do intervalo permitido (valores `< 0` são zerados para `0.00` e valores `> 100` são limitados a `100.00`).
 * **Trigger `trg_valida_compatibilidade_prova`:** Valida a regra de negócio entre a categoria do robô e a modalidade da prova (ex.: *Sumô de Robôs* só compete em *Duelo de Sumô*; *Combate 3kg* apenas em *Arena de Batalha*; *Seguidor de Linha* em *Corrida de Velocidade* ou *Circuito Urbano*), bloqueando inconsistências via `SIGNAL SQLSTATE '45000'`.
 * **Stored Procedure `sp_inserir_resultado`:** Insere um novo resultado e recalcula dinamicamente o ranking (`classificacao`) de todos os participantes daquela prova com base na maior pontuação.
-* **Stored Procedure `sp_aplicar_bonus_categoria`:** Aplica acréscimos percentuais na pontuação de todos os robôs pertencentes a uma determinada categoria, respeitando o teto máximo de `100.00` pontos.
+* **Stored Procedure `sp_aplicar_bonus_categoria`:** Aplica acréscimos percentuais na pontuação de todos os robôs pertencentes a uma determinada categoria, respeitando o teto máximo de `100.00` pontos. Pode ser executada pelo formulário "Bônus por Categoria" da aba 3.
 * **Integridade Referencial (`CASCADE`):** Garante que registros órfãos sejam bloqueados na inserção e que exclusões/atualizações de registros pai propaguem corretamente para as tabelas filhas.
 
 ---
@@ -38,7 +38,7 @@ O banco relacional é composto por 4 tabelas interligadas:
 * **`equipe`**: Armazena os dados das equipes participantes (`id_equipe`, `nome_equipe`, `escola`, `cidade`).
 * **`membro_equipe`**: Integrantes vinculados a uma equipe (`id_membro`, `nome_membro`, `funcao`, `id_equipe` FK).
 * **`robo`**: Robôs inscritos por cada equipe (`id_robo`, `nome_robo`, `categoria`, `data_criacao`, `id_equipe` FK).
-* **`resultado`**: Desempenho e ranking dos robôs nas provas (`id_resultado`, `nome_prova`, `classificacao`, `pontuacao`, `id_robo` FK).
+* **`resultado`**: Desempenho e ranking dos robôs nas provas (`nome_prova` + `classificacao` formam a chave primária composta, `pontuacao`, `id_robo` FK).
 
 ---
 
@@ -52,7 +52,8 @@ IAAD/
 ├── requirements.txt    # Dependências Python (Streamlit, MySQL Connector, Pandas, Plotly, Dotenv)
 ├── app.py              # Código principal da aplicação web e camada de tratamento de erros
 └── database/
-    └── schema.sql      # Script DDL/DML completo (tabelas, triggers, procedures e povoamento inicial) 
+    ├── schema.sql      # Script DDL/DML completo (tabelas, triggers, procedures e povoamento inicial) 
+    └── torneio_robotica.mwb  # Modelo (DER/EER) do MySQL Workbench
 ```
 ---
 

@@ -12,6 +12,14 @@ st.set_page_config(
 )
 
 
+PROVAS_OFICIAIS = [
+    "Corrida de Velocidade",
+    "Duelo de Sumô",
+    "Arena de Batalha",
+    "Circuito Urbano",
+]
+
+
 # --- FUNÇÕES DE CONEXÃO E EXECUÇÃO ---
 def get_connection():
   return mysql.connector.connect(
@@ -24,14 +32,25 @@ def get_connection():
 
 
 def run_query(query, params=None):
-  conn = get_connection()
-  df = pd.read_sql(query, conn, params=params)
-  conn.close()
-  return df
+  try:
+    conn = get_connection()
+  except mysql.connector.Error as err:
+    st.error(
+        "❌ **Não foi possível conectar ao MySQL.** Verifique se o servidor está"
+        f" rodando e se o arquivo `.env` está correto. Detalhe: {err.msg}"
+    )
+    st.stop()
+  try:
+    return pd.read_sql(query, conn, params=params)
+  finally:
+    conn.close()
 
 
 def execute_command(query, params=None):
-  conn = get_connection()
+  try:
+    conn = get_connection()
+  except mysql.connector.Error as err:
+    return False, f"❌ **Não foi possível conectar ao MySQL:** {err.msg}"
   cursor = conn.cursor()
   try:
     cursor.execute(query, params or ())
@@ -108,7 +127,7 @@ with aba_dash:
             e.nome_equipe AS Equipe,
             e.cidade AS Cidade,
             COUNT(DISTINCT r.id_robo) AS Qtd_Robos,
-            COUNT(res.id_resultado) AS Provas_Disputadas,
+            COUNT(res.id_robo) AS Provas_Disputadas,
             COALESCE(ROUND(AVG(res.pontuacao), 2), 0) AS Media_Pontuacao,
             COALESCE(MAX(res.pontuacao), 0) AS Maior_Pontuacao,
             COALESCE(MAX(DATEDIFF(CURDATE(), r.data_criacao)), 0) AS Dias_Robo_Mais_Antigo
@@ -127,9 +146,10 @@ with aba_dash:
   col3.metric(
       "Provas Registradas", int(df_analitico["Provas_Disputadas"].sum())
   )
+  com_nota = df_analitico[df_analitico["Media_Pontuacao"] > 0]["Media_Pontuacao"]
   col4.metric(
       "Média Geral",
-      f"{df_analitico[df_analitico['Media_Pontuacao'] > 0]['Media_Pontuacao'].mean():.2f} pts",
+      f"{com_nota.mean():.2f} pts" if not com_nota.empty else "—",
   )
 
   st.divider()
@@ -145,11 +165,11 @@ with aba_dash:
         title="Média de Pontuação por Equipe (incluindo equipes sem provas)",
         text_auto=True,
     )
-    st.plotly_chart(fig_bar, use_container_width=True)
+    st.plotly_chart(fig_bar, width="stretch")
 
   with col_g2:
     df_cat = run_query("""
-            SELECT r.categoria AS Categoria, COUNT(res.id_resultado) AS Total_Provas, AVG(res.pontuacao) AS Media
+            SELECT r.categoria AS Categoria, COUNT(res.id_robo) AS Total_Provas, AVG(res.pontuacao) AS Media
             FROM robo r
             JOIN resultado res ON r.id_robo = res.id_robo
             GROUP BY r.categoria
@@ -160,7 +180,7 @@ with aba_dash:
         values="Total_Provas",
         title="Distribuição de Provas por Categoria de Robô",
     )
-    st.plotly_chart(fig_pie, use_container_width=True)
+    st.plotly_chart(fig_pie, width="stretch")
 
   st.subheader(
       "📋 Resultado da Consulta Não Trivial (LEFT JOIN + GROUP BY + Agregação +"
@@ -170,7 +190,7 @@ with aba_dash:
       "Note que equipes sem robôs cadastrados (ex: MechWarriors) aparecem com"
       " valores zerados graças ao LEFT JOIN."
   )
-  st.dataframe(df_analitico, use_container_width=True)
+  st.dataframe(df_analitico, width="stretch")
 
 # ==============================================================================
 # ABA 2: OPERAÇÕES CRUD COMPLETAS + REFERÊNCIA RÁPIDA DE IDS
@@ -187,7 +207,7 @@ with aba_crud:
   # --- READ ---
   st.subheader(f"🔍 Leitura (Read) - Tabela `{tabela_escolhida}`")
   df_tabela = run_query(f"SELECT * FROM {tabela_escolhida}")
-  st.dataframe(df_tabela, use_container_width=True)
+  st.dataframe(df_tabela, width="stretch")
 
   col_c, col_u, col_d = st.columns(3)
 
@@ -250,12 +270,6 @@ with aba_crud:
 
     elif tabela_escolhida == "resultado":
       with st.form("form_create_res"):
-        PROVAS_OFICIAIS = [
-            "Corrida de Velocidade",
-            "Duelo de Sumô",
-            "Arena de Batalha",
-            "Circuito Urbano",
-        ]
         prova = st.selectbox("Selecione a Prova Oficial", PROVAS_OFICIAIS)
         pontos = st.number_input(
             "Pontuação (A Trigger ajusta < 0 ou > 100)", value=85.0
@@ -333,16 +347,27 @@ with aba_crud:
 
     elif tabela_escolhida == "resultado":
       with st.form("form_upd_res"):
-        id_alvo = st.number_input("ID do Resultado", min_value=1, step=1)
+        prova_alvo = st.selectbox(
+            "Prova do Resultado", PROVAS_OFICIAIS, key="upd_res_prova"
+        )
+        classif_alvo = st.number_input(
+            "Classificação atual", min_value=1, step=1, key="upd_res_classif"
+        )
         nova_pont = st.number_input(
             "Nova Pontuação", min_value=0.0, max_value=100.0
         )
+        st.caption(
+            "ℹ️ A chave do resultado é a prova + a classificação. O ranking"
+            " da prova é recalculado depois da alteração."
+        )
         if st.form_submit_button("Atualizar Pontuação"):
           ok, msg = execute_command(
-              "UPDATE resultado SET pontuacao = %s WHERE id_resultado = %s",
-              (nova_pont, id_alvo),
+              "UPDATE resultado SET pontuacao = %s WHERE nome_prova = %s"
+              " AND classificacao = %s",
+              (nova_pont, prova_alvo, int(classif_alvo)),
           )
           if ok:
+            execute_command("CALL sp_recalcular_ranking(%s)", (prova_alvo,))
             st.session_state["feedback"] = ("crud", "success", msg)
             st.rerun()
           else:
@@ -355,21 +380,51 @@ with aba_crud:
         "equipe": "id_equipe",
         "membro_equipe": "id_membro",
         "robo": "id_robo",
-        "resultado": "id_resultado",
     }
-    pk_col = pk_map[tabela_escolhida]
-    with st.form("form_delete"):
-      id_del = st.number_input(f"ID ({pk_col}) para excluir", min_value=1, step=1)
-      st.caption("⚠️ Excluir registros pai remove as dependências em cascata.")
-      if st.form_submit_button("Excluir Registro"):
-        ok, msg = execute_command(
-            f"DELETE FROM {tabela_escolhida} WHERE {pk_col} = %s", (id_del,)
+    if tabela_escolhida == "resultado":
+      with st.form("form_delete_res"):
+        prova_del = st.selectbox(
+            "Prova do Resultado", PROVAS_OFICIAIS, key="del_res_prova"
         )
-        if ok:
-          st.session_state["feedback"] = ("crud", "success", msg)
-          st.rerun()
-        else:
-          st.error(msg)
+        classif_del = st.number_input(
+            "Classificação para excluir", min_value=1, step=1,
+            key="del_res_classif",
+        )
+        st.caption("ℹ️ O ranking da prova é recalculado depois da exclusão.")
+        if st.form_submit_button("Excluir Registro"):
+          ok, msg = execute_command(
+              "DELETE FROM resultado WHERE nome_prova = %s AND"
+              " classificacao = %s",
+              (prova_del, int(classif_del)),
+          )
+          if ok:
+            execute_command("CALL sp_recalcular_ranking(%s)", (prova_del,))
+            st.session_state["feedback"] = ("crud", "success", msg)
+            st.rerun()
+          else:
+            st.error(msg)
+    else:
+      pk_col = pk_map[tabela_escolhida]
+      with st.form("form_delete"):
+        id_del = st.number_input(
+            f"ID ({pk_col}) para excluir", min_value=1, step=1
+        )
+        st.caption("⚠️ Excluir registros pai remove as dependências em cascata.")
+        if st.form_submit_button("Excluir Registro"):
+          ok, msg = execute_command(
+              f"DELETE FROM {tabela_escolhida} WHERE {pk_col} = %s", (id_del,)
+          )
+          if ok:
+            if tabela_escolhida in ("equipe", "robo"):
+              # a cascata pode ter removido resultados: refaz os rankings
+              for prova_rank in PROVAS_OFICIAIS:
+                execute_command(
+                    "CALL sp_recalcular_ranking(%s)", (prova_rank,)
+                )
+            st.session_state["feedback"] = ("crud", "success", msg)
+            st.rerun()
+          else:
+            st.error(msg)
 
   # --- PAINEL DE REFERÊNCIA RÁPIDA DE IDS E JUNÇÕES ---
   st.markdown("---")
@@ -382,7 +437,6 @@ with aba_crud:
             e.nome_equipe AS Equipe,
             r.id_robo AS ID_Robo,
             r.nome_robo AS Robo,
-            res.id_resultado AS ID_Res,
             res.nome_prova AS Prova,
             res.classificacao AS Classif,
             res.pontuacao AS Pontos
@@ -391,7 +445,7 @@ with aba_crud:
         LEFT JOIN resultado res ON r.id_robo = res.id_robo;
     """
   df_ref = run_query(query_referencia)
-  st.dataframe(df_ref, use_container_width=True)
+  st.dataframe(df_ref, width="stretch")
 
 # ==============================================================================
 # ABA 3: DEMONSTRAÇÃO DE TRIGGERS, STORED PROCEDURE E INTEGRIDADE REFERENCIAL
@@ -439,14 +493,18 @@ with aba_avancado:
 
         ok, msg = execute_command(
             "INSERT INTO resultado (nome_prova, classificacao, pontuacao,"
-            " id_robo) VALUES (%s, 0, %s, %s)",
-            (prova_compativel, pontos_t1, int(id_robo_t1)),
+            " id_robo) SELECT %s, COALESCE(MAX(classificacao), 0) + 1, %s, %s"
+            " FROM resultado WHERE nome_prova = %s",
+            (prova_compativel, pontos_t1, int(id_robo_t1), prova_compativel),
         )
         if ok:
           df_ultimo = run_query(
-              "SELECT pontuacao FROM resultado WHERE id_robo = %s ORDER BY"
-              " id_resultado DESC LIMIT 1",
-              params=(int(id_robo_t1),),
+              "SELECT pontuacao FROM resultado WHERE nome_prova = %s ORDER BY"
+              " classificacao DESC LIMIT 1",
+              params=(prova_compativel,),
+          )
+          execute_command(
+              "CALL sp_recalcular_ranking(%s)", (prova_compativel,)
           )
           valor_gravado = (
               float(df_ultimo.iloc[0]["pontuacao"])
@@ -577,3 +635,42 @@ with aba_avancado:
         st.error(f"Bloqueio bem-sucedido pelo SGBD!\n\n**Detalhe:** {msg}")
       else:
         st.warning("Inesperado: a inserção passou.")
+
+  st.divider()
+
+  # --- BÔNUS: STORED PROCEDURE DE ACRÉSCIMO POR CATEGORIA ---
+  st.subheader("🎁 Stored Procedure: Bônus por Categoria")
+  st.write(
+      "Aplica um acréscimo percentual na pontuação de todos os robôs de uma"
+      " categoria, respeitando o teto de 100 pontos."
+  )
+  with st.form("form_sp_bonus"):
+    cat_bonus = st.selectbox(
+        "Categoria",
+        ["Seguidor de Linha", "Sumô de Robôs", "Combate 3kg"],
+        key="bonus_cat",
+    )
+    perc_bonus = st.number_input(
+        "Percentual de bônus (%)",
+        min_value=0.0,
+        max_value=100.0,
+        value=10.0,
+        key="bonus_perc",
+    )
+    if st.form_submit_button("Aplicar Bônus (`CALL`)"):
+      ok, msg = execute_command(
+          "CALL sp_aplicar_bonus_categoria(%s, %s)", (cat_bonus, perc_bonus)
+      )
+      if ok:
+        st.session_state["feedback"] = (
+            "bonus",
+            "success",
+            f"Bônus de {perc_bonus:.2f}% aplicado aos robôs da categoria"
+            f" '{cat_bonus}' (teto de 100 pontos).",
+        )
+        st.rerun()
+      else:
+        st.error(msg)
+  exibir_feedback("bonus")
+
+  st.divider()
