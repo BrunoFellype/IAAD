@@ -34,12 +34,14 @@ CREATE TABLE robo (
 );
 
 -- 4. Tabela Resultado
+-- Chave primária composta (nome_prova, classificacao), conforme o DER:
+-- cada posição do ranking de uma prova pertence a um único robô.
 CREATE TABLE resultado (
-    id_resultado INT AUTO_INCREMENT PRIMARY KEY,
     nome_prova VARCHAR(100) NOT NULL,
-    classificacao INT DEFAULT 0,
+    classificacao INT NOT NULL,
     pontuacao DECIMAL(6,2) NOT NULL,
     id_robo INT NOT NULL,
+    PRIMARY KEY (nome_prova, classificacao),
     FOREIGN KEY (id_robo) REFERENCES robo(id_robo)
         ON DELETE CASCADE
         ON UPDATE CASCADE
@@ -107,6 +109,35 @@ END$$
 DELIMITER ;
 
 -- ==========================================================
+-- STORED PROCEDURE: Recalcular o Ranking de uma Prova
+-- ==========================================================
+-- A classificação faz parte da chave primária. Por isso o recálculo é
+-- feito em dois passos: primeiro as posições antigas são deslocadas para
+-- uma faixa alta e só depois recebem os valores finais (1, 2, 3...).
+-- Assim nenhuma linha colide com outra durante o UPDATE.
+DELIMITER $$
+CREATE PROCEDURE sp_recalcular_ranking(
+    IN p_nome_prova VARCHAR(100)
+)
+BEGIN
+    UPDATE resultado
+    SET classificacao = classificacao + 100000
+    WHERE nome_prova = p_nome_prova
+    ORDER BY classificacao DESC;
+
+    UPDATE resultado res
+    JOIN (
+        SELECT classificacao AS pos_antiga,
+               ROW_NUMBER() OVER (ORDER BY pontuacao DESC, classificacao ASC) AS nova_pos
+        FROM resultado
+        WHERE nome_prova = p_nome_prova
+    ) ranked ON res.classificacao = ranked.pos_antiga
+    SET res.classificacao = ranked.nova_pos
+    WHERE res.nome_prova = p_nome_prova;
+END$$
+DELIMITER ;
+
+-- ==========================================================
 -- STORED PROCEDURE: Inserção de Resultado com Ranking Automático
 -- ==========================================================
 DELIMITER $$
@@ -116,18 +147,17 @@ CREATE PROCEDURE sp_inserir_resultado(
     IN p_id_robo INT
 )
 BEGIN
-    INSERT INTO resultado (nome_prova, classificacao, pontuacao, id_robo) 
-    VALUES (p_nome_prova, 0, p_pontuacao, p_id_robo);
-    
-    SET @pos = 0;
-    UPDATE resultado res
-    JOIN (
-        SELECT id_resultado, @pos := @pos + 1 AS nova_pos
-        FROM resultado
-        WHERE nome_prova = p_nome_prova
-        ORDER BY pontuacao DESC, id_resultado ASC
-    ) ranked ON res.id_resultado = ranked.id_resultado
-    SET res.classificacao = ranked.nova_pos;
+    DECLARE v_ultima INT;
+
+    SELECT COALESCE(MAX(classificacao), 0) INTO v_ultima
+    FROM resultado
+    WHERE nome_prova = p_nome_prova;
+
+    -- entra na última posição e o ranking é recalculado em seguida
+    INSERT INTO resultado (nome_prova, classificacao, pontuacao, id_robo)
+    VALUES (p_nome_prova, v_ultima + 1, p_pontuacao, p_id_robo);
+
+    CALL sp_recalcular_ranking(p_nome_prova);
 END$$
 DELIMITER ;
 

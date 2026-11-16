@@ -38,7 +38,7 @@ O banco relacional é composto por 4 tabelas interligadas:
 * **`equipe`**: Armazena os dados das equipes participantes (`id_equipe`, `nome_equipe`, `escola`, `cidade`).
 * **`membro_equipe`**: Integrantes vinculados a uma equipe (`id_membro`, `nome_membro`, `funcao`, `id_equipe` FK).
 * **`robo`**: Robôs inscritos por cada equipe (`id_robo`, `nome_robo`, `categoria`, `data_criacao`, `id_equipe` FK).
-* **`resultado`**: Desempenho e ranking dos robôs nas provas (`id_resultado`, `nome_prova`, `classificacao`, `pontuacao`, `id_robo` FK).
+* **`resultado`**: Desempenho e ranking dos robôs nas provas (`nome_prova` + `classificacao` formam a chave primária composta, `pontuacao`, `id_robo` FK).
 
 ---
 
