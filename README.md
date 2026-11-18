@@ -1,140 +1,199 @@
 # 🤖 Sistema de Gestão - Torneio de Robótica
 
-Sistema web interativo desenvolvido em **Python (Streamlit)** integrado a um banco de dados relacional **MySQL** para gerenciar, auditar e visualizar métricas de equipes, robôs, membros e resultados de um Torneio de Robótica.
+Sistema web para gestão de equipes, robôs e resultados de um torneio de robótica, desenvolvido em **Python**. A aplicação principal utiliza **Streamlit** e **MySQL**; esta branch também apresenta uma implementação **NoSQL com Redis**, incluindo um script de migração dos dados do MySQL.
 
-O projeto consolida regras de negócio diretamente no motor do banco de dados (via **Triggers**, **Stored Procedures** e **Integridade Referencial**) e apresenta uma interface resiliente com tratamento amigável de exceções e visualização analítica com **Plotly**.
-
----
-
-## ✨ Funcionalidades e Arquitetura
-
-A aplicação é dividida em três módulos principais na interface web:
-
-### 1. 📊 Dashboard & Consultas Analíticas
-* **KPIs em Tempo Real:** Contagem de equipes, total de robôs, provas registradas e média geral de pontuação.
-* **Gráficos Interativos (Plotly):** 
-  * Gráfico de barras comparando a média de pontuação por equipe e cidade.
-  * Gráfico de pizza exibindo a distribuição de provas por categoria de robô.
-* **Consulta Não Trivial:** Junção avançada (`LEFT JOIN`) cruzando equipes, robôs e resultados com agrupamento (`GROUP BY`), funções de agregação (`COUNT`, `AVG`, `MAX`, `COALESCE`) e cálculo temporal (`DATEDIFF`) para identificar o tempo de criação do robô mais antigo de cada equipe (incluindo equipes sem robôs cadastrados).
-
-### 2. ⚙️ Gerenciamento Completo (CRUD)
-* Operações de **Leitura (Read)**, **Criação (Create)**, **Atualização (Update)** e **Exclusão (Delete)** para todas as entidades (`equipe`, `membro_equipe`, `robo` e `resultado`).
-* **Guia de Referência Rápida:** Tabela unificada exibindo os relacionamentos e IDs de equipes, robôs e resultados lado a lado para facilitar o preenchimento de chaves estrangeiras (FK) durante os cadastros.
-* **Integração Automática:** O cadastro de novos resultados aciona automaticamente a Stored Procedure de cálculo de classificação.
-
-### 3. 🧪 Regras de Negócio no Banco de Dados (Triggers, Procedures & FK)
-Aba dedicada à demonstração e validação das proteções implementadas diretamente no MySQL, com tradução de erros técnicos do SGBD para alertas visuais amigáveis no Streamlit:
-* **Trigger `trg_valida_pontuacao_insert`:** Intercepta inserções de resultados e ajusta automaticamente pontuações fora do intervalo permitido (valores `< 0` são zerados para `0.00` e valores `> 100` são limitados a `100.00`).
-* **Trigger `trg_valida_compatibilidade_prova`:** Valida a regra de negócio entre a categoria do robô e a modalidade da prova (ex.: *Sumô de Robôs* só compete em *Duelo de Sumô*; *Combate 3kg* apenas em *Arena de Batalha*; *Seguidor de Linha* em *Corrida de Velocidade* ou *Circuito Urbano*), bloqueando inconsistências via `SIGNAL SQLSTATE '45000'`.
-* **Stored Procedure `sp_inserir_resultado`:** Insere um novo resultado e recalcula dinamicamente o ranking (`classificacao`) de todos os participantes daquela prova com base na maior pontuação.
-* **Stored Procedure `sp_aplicar_bonus_categoria`:** Aplica acréscimos percentuais na pontuação de todos os robôs pertencentes a uma determinada categoria, respeitando o teto máximo de `100.00` pontos. Pode ser executada pelo formulário "Bônus por Categoria" da aba 3.
-* **Integridade Referencial (`CASCADE`):** Garante que registros órfãos sejam bloqueados na inserção e que exclusões/atualizações de registros pai propaguem corretamente para as tabelas filhas.
+O projeto permite comparar os modelos relacional e chave-valor: no MySQL, as relações e regras de negócio são definidas no banco; no Redis, os dados são organizados em hashes, sets e sorted sets para consultas por equipe, categoria e ranking.
 
 ---
 
-## 🗄️ Modelagem do Banco de Dados (`torneio_robotica`)
+## ✨ Funcionalidades e arquitetura
 
-O banco relacional é composto por 4 tabelas interligadas:
-* **`equipe`**: Armazena os dados das equipes participantes (`id_equipe`, `nome_equipe`, `escola`, `cidade`).
-* **`membro_equipe`**: Integrantes vinculados a uma equipe (`id_membro`, `nome_membro`, `funcao`, `id_equipe` FK).
-* **`robo`**: Robôs inscritos por cada equipe (`id_robo`, `nome_robo`, `categoria`, `data_criacao`, `id_equipe` FK).
-* **`resultado`**: Desempenho e ranking dos robôs nas provas (`nome_prova` + `classificacao` formam a chave primária composta, `pontuacao`, `id_robo` FK).
+### 1. Aplicação web com MySQL
+
+O arquivo `app.py` implementa uma interface Streamlit com três áreas:
+
+- **Dashboard e consultas analíticas:** indicadores do torneio, gráficos e consulta agregada de equipes, robôs e resultados.
+- **Gerenciamento (CRUD):** leitura, criação, atualização e exclusão de equipes, membros, robôs e resultados.
+- **Recursos do banco:** demonstração de triggers, stored procedures e integridade referencial.
+
+A aplicação web continua conectada ao **MySQL**. O código Redis desta branch é um módulo complementar, executado separadamente; não substitui nem altera a conexão usada pelo dashboard.
+
+### 2. Módulo NoSQL com Redis
+
+Os dados do torneio são representados com estas estruturas:
+
+| Estrutura Redis | Padrão de chave | Conteúdo |
+|---|---|---|
+| Hash | `equipe:{id}` | Nome da equipe e cidade |
+| Hash | `robo:{id}` | Nome, categoria e ID da equipe |
+| Set | `equipe:{id}:robos` | IDs dos robôs da equipe |
+| Set | `categoria:{slug}` | IDs dos robôs da categoria |
+| Sorted set | `ranking:{slug_prova}` | Membros `robo:{id}` com pontuação como score |
+
+Os nomes de categorias e provas são normalizados para formar os sufixos das chaves (por exemplo, `Corrida de Velocidade` vira `corrida_de_velocidade`). As consultas no arquivo de carga mostram operações como leitura de hashes, interseção de sets e recuperação de ranking ordenado.
+
+O arquivo `redis/mysql_para_redis.py` copia equipes, robôs e resultados do banco MySQL para o Redis. **A migração limpa o banco Redis selecionado com `FLUSHDB` antes de copiar os dados.** Use uma instância/banco Redis dedicado ou sem dados que você queira preservar.
+
+### 3. Modelo relacional
+
+O script `database/schema.sql` cria o banco `torneio_robotica` e as tabelas `equipe`, `membro_equipe`, `robo` e `resultado`. Também define chaves estrangeiras com cascata, regras para compatibilidade entre categoria e prova, limites de pontuação e procedimentos para inserção e recálculo de ranking.
+
+> **Atenção:** `database/schema.sql` começa com `DROP DATABASE IF EXISTS torneio_robotica`. Executá-lo apaga e recria esse banco. Faça backup se já tiver dados importantes.
 
 ---
 
-## 📂 Estrutura do Projeto
+## 📂 Estrutura do projeto
 
-```
+```text
 IAAD/
-├── .env.example        # Modelo de variáveis de ambiente
-├── .gitignore          # Arquivos e pastas ignorados pelo Git (incluindo .env e venv)
-├── README.md           # Documentação completa do projeto
-├── requirements.txt    # Dependências Python (Streamlit, MySQL Connector, Pandas, Plotly, Dotenv)
-├── app.py              # Código principal da aplicação web e camada de tratamento de erros
-└── database/
-    ├── schema.sql      # Script DDL/DML completo (tabelas, triggers, procedures e povoamento inicial) 
-    └── torneio_robotica.mwb  # Modelo (DER/EER) do MySQL Workbench
+├── .env.example             # Exemplo de configuração de conexão MySQL
+├── README.md                # Documentação geral e instruções de execução
+├── app.py                   # Aplicação web Streamlit ligada ao MySQL
+├── requirements.txt         # Dependências da aplicação principal
+├── database/
+│   ├── schema.sql           # Criação/população do banco MySQL e regras de negócio
+│   └── torneio_robotica.mwb # Modelo do banco para MySQL Workbench
+└── redis/
+    ├── README.md            # Notas específicas do módulo Redis
+    ├── modelagem_redis.png  # Diagrama da modelagem NoSQL
+    ├── mysql_para_redis.py  # Migração de dados do MySQL para o Redis
+    ├── requirements.txt     # Dependência Python do módulo Redis
+    └── torneio.redis        # Carga de demonstração e consultas/alterações via redis-cli
 ```
+
 ---
 
 ## ⚙️ Pré-requisitos
 
-Certifique-se de ter instalado na sua máquina:
-* **Python** (versão 3.10 ou superior)
-* **MySQL Server** (rodando localmente ou em servidor remoto)
-* **MySQL Workbench** (opcional, para gerenciamento visual)
+- **Python** 3.10 ou superior.
+- **MySQL Server** para usar a aplicação web e/ou migrar dados para Redis.
+- **Redis** para executar o módulo NoSQL (pode ser iniciado com Docker, conforme abaixo).
+- **Docker** (opcional, recomendado para iniciar o Redis rapidamente).
 
 ---
 
-## 🚀 Passo a Passo para Executar o Projeto
+## 🚀 Como executar
 
-### 1. Clonar o Repositório e Configurar o Ambiente
+### 1. Obter esta branch e configurar o Python
 
-Clone o projeto para a sua máquina e entre na pasta raiz:
 ```bash
 git clone https://github.com/BrunoFellype/IAAD.git
 cd IAAD
+git checkout entrega/redis-nosql
+
+python -m venv venv
 ```
 
-Crie e ative um ambiente virtual Python:
-```bash
-# Criar o ambiente virtual
-python3 -m venv venv
+Ative o ambiente virtual:
 
-# Ativar no Linux/macOS
+```bash
+# Linux/macOS
 source venv/bin/activate
 
-# Ativar no Windows (PowerShell)
-# .\venv\Scripts\Activate
+# Windows PowerShell
+.\venv\Scripts\Activate.ps1
 ```
 
-Instale as dependências listadas no `requirements.txt`:
+Instale as dependências da aplicação principal:
+
 ```bash
 pip install -r requirements.txt
 ```
 
----
+### 2. Configurar e criar o banco MySQL
 
-### 2. Configurar o Banco de Dados MySQL
+Para a aplicação Streamlit ou a migração MySQL → Redis, configure um MySQL acessível e crie o banco e os dados iniciais:
 
-1. Abra o seu **MySQL Workbench** (ou cliente MySQL de sua preferência).
-2. Abra o arquivo localizado em `database/schema.sql` ou copie o seu conteúdo para uma nova aba de SQL.
-Execute o script completo de uma só vez. Ele criará o banco torneio_robotica, estruturará as tabelas, compilará as Triggers e Stored Procedures e realizará o povoamento inicial com equipes, membros, robôs e resultados de exemplo.
+1. Confira o aviso de remoção de dados acima.
+2. Execute `database/schema.sql` em um cliente MySQL, como MySQL Workbench, ou pelo terminal:
 
----
+```bash
+mysql -u root -p < database/schema.sql
+```
 
-### 3. Configurar as Variáveis de Ambiente (`.env`)
+O comando pressupõe que o cliente `mysql` esteja instalado e que o usuário tenha permissão para criar e remover o banco `torneio_robotica`.
 
-Para proteger dados sensíveis (como a senha do seu banco de dados), a aplicação utiliza variáveis de ambiente.
+Crie um arquivo `.env` na raiz do projeto com as credenciais do seu MySQL (use `.env.example` como referência):
 
-1. Na raiz do projeto, crie um arquivo chamado **`.env`** (você pode se basear no modelo `.env.example`).
-2. Preencha com as suas credenciais locais do MySQL:
-
-```env
+```dotenv
 DB_HOST=localhost
 DB_USER=root
-DB_PASSWORD=sua_senha_aqui
+DB_PASSWORD=sua_senha
 DB_NAME=torneio_robotica
 DB_PORT=3306
 ```
 
----
+### 3. Executar a aplicação web (MySQL)
 
-### 4. Executar a Aplicação (Dashboard)
+Com o MySQL em execução, o banco preparado e o ambiente virtual ativo:
 
-Com o ambiente virtual ativado e o banco de dados configurado, execute o Streamlit:
 ```bash
 streamlit run app.py
 ```
 
-O sistema abrirá automaticamente uma aba no seu navegador web padrão no endereço:
-👉 `http://localhost:8501`
+A interface estará disponível em `http://localhost:8501`. Essa aplicação usa MySQL, não Redis.
+
+### 4. Iniciar Redis e carregar os dados de demonstração
+
+Inicie uma instância Redis local usando Docker:
+
+```bash
+docker run -d --name redis-torneio -p 6379:6379 redis:7
+```
+
+Para carregar hashes, sets, rankings e executar as consultas/alterações de exemplo definidas em `redis/torneio.redis`:
+
+```bash
+docker exec -i redis-torneio redis-cli < redis/torneio.redis
+```
+
+O arquivo inicia com `FLUSHDB`, que apaga todas as chaves do banco Redis selecionado antes de carregar os exemplos. Para abrir o cliente interativo, use:
+
+```bash
+docker exec -it redis-torneio redis-cli
+```
+
+### 5. Migrar os dados existentes do MySQL para Redis (opcional)
+
+Esta opção exige que o MySQL esteja executando, que `database/schema.sql` já tenha sido aplicado e que o `.env` esteja configurado. No mesmo ambiente virtual, instale a dependência Redis:
+
+```bash
+pip install -r redis/requirements.txt
+```
+
+O script usa `REDIS_HOST` e `REDIS_PORT` se definidos; os valores padrão são `localhost` e `6379`. Execute:
+
+```bash
+python redis/mysql_para_redis.py
+```
+
+A migração chama `FLUSHDB` antes de copiar os dados. Portanto, não a execute contra um banco Redis que contenha chaves que devem ser mantidas. Ao concluir, o script informa a quantidade de chaves gravadas.
+
+Para parar e remover o container de demonstração:
+
+```bash
+docker stop redis-torneio
+docker rm redis-torneio
+```
 
 ---
 
-## 👥 Trabalho em Equipe (Colaboradores)
-Caso você esteja clonando este repositório pela primeira vez para colaborar com o grupo:
-1. Instale as dependências via `pip install -r requirements.txt`.
-2. Crie o seu próprio arquivo `.env` localmente (ele não vai para o GitHub por segurança).
-3. Execute o script `database/schema.sql` no seu MySQL local para estruturar o banco.
-4. Rode o `streamlit run app.py` e comece a desenvolver!
+## 🔎 MySQL × Redis
+
+| Aspecto | MySQL | Redis nesta branch |
+|---|---|---|
+| Modelo | Tabelas relacionais, chaves primárias e estrangeiras | Chaves e estruturas de dados em memória |
+| Integridade | Regras no banco, incluindo FKs, triggers e procedures | Relacionamentos representados por conjuntos/chaves; validação é responsabilidade da aplicação |
+| Ranking | Consulta/recálculo relacional | Sorted set, consultado em ordem por score |
+| Junção por equipe/categoria | `JOIN` entre tabelas | Interseção de sets (`SINTER`) |
+| Uso no projeto | Interface Streamlit e fonte dos dados da migração | Demonstração NoSQL e armazenamento de cópia dos dados |
+
+---
+
+## 👥 Para colaborar
+
+1. Ative o ambiente virtual e instale `requirements.txt`.
+2. Configure seu `.env` local; não compartilhe credenciais.
+3. Prepare o MySQL com `database/schema.sql` somente se puder recriar o banco.
+4. Para a parte Redis, inicie o Redis e escolha a carga de demonstração ou a migração MySQL → Redis, lembrando que ambas limpam o banco Redis selecionado.
+5. Execute `streamlit run app.py` para abrir a aplicação web.
